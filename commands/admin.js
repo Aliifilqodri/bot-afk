@@ -244,4 +244,42 @@ async function handleBroadcast(message, args) {
   }
 }
 
-module.exports = { handleAddChar, handleCharList, handleBroadcast };
+// !setchannel gacha-log #channel
+async function handleSetChannel(message, args) {
+  if (!message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+    return message.reply('❌ Cuma admin yang bisa pakai command ini!');
+  }
+
+  const type    = args[0]?.toLowerCase();
+  const channel = message.mentions.channels.first();
+
+  if (!type || !channel) {
+    return message.reply(
+      '❓ Format: `!setchannel [tipe] #channel`\n' +
+      'Tipe yang tersedia:\n' +
+      '• `gacha-log` — channel notif hasil pull gacha\n\n' +
+      'Contoh: `!setchannel gacha-log #gacha-notif`'
+    );
+  }
+
+  const validTypes = { 'gacha-log': 'gacha_log_channel' };
+  const dbKey = validTypes[type];
+  if (!dbKey) {
+    return message.reply(`❌ Tipe **${type}** tidak dikenal. Pilihan: \`gacha-log\``);
+  }
+
+  db.setSetting(message.guild.id, dbKey, channel.id);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x4caf50)
+    .setTitle('✅ Channel Berhasil Di-set!')
+    .addFields(
+      { name: 'Tipe',    value: type,            inline: true },
+      { name: 'Channel', value: `${channel}`,    inline: true },
+    )
+    .setDescription(`Sekarang setiap ada yang gacha, notif otomatis dikirim ke ${channel}!`);
+
+  return message.reply({ embeds: [embed] });
+}
+
+module.exports = { handleAddChar, handleCharList, handleBroadcast, handleSetChannel };

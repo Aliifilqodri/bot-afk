@@ -1,6 +1,8 @@
 const path    = require('path');
 const Database = require('better-sqlite3');
-const characters = require('./data/characters');
+const characters      = require('./data/characters');
+const charactersExtra = require('./data/characters_extra');
+const allCharacters   = [...characters, ...charactersExtra];
 
 // Kalau di Railway (ada folder /data), simpan di sana biar kena Volume
 // Kalau lokal, simpan di folder project biasa
@@ -41,6 +43,13 @@ function initDB() {
       obtained_at INTEGER DEFAULT (strftime('%s','now')),
       FOREIGN KEY (character_id) REFERENCES characters(id)
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      guild_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      PRIMARY KEY (guild_id, key)
+    );
   `);
 
   // Seed characters kalau table masih kosong
@@ -55,8 +64,8 @@ function initDB() {
     const insertMany = db.transaction((chars) => {
       for (const c of chars) insert.run(c);
     });
-    insertMany(characters);
-    console.log(`[DB] Seeded ${characters.length} karakter.`);
+    insertMany(allCharacters);
+    console.log(`[DB] Seeded ${allCharacters.length} karakter.`);
   }
 
   console.log('[DB] Database siap!');
@@ -155,10 +164,21 @@ function getAllCharacters() {
   return db.prepare('SELECT * FROM characters ORDER BY rarity, name').all();
 }
 
+// ── Settings (per server) ──────────────────────────
+function getSetting(guildId, key) {
+  const row = db.prepare('SELECT value FROM settings WHERE guild_id = ? AND key = ?').get(guildId, key);
+  return row ? row.value : null;
+}
+
+function setSetting(guildId, key, value) {
+  db.prepare('INSERT OR REPLACE INTO settings (guild_id, key, value) VALUES (?, ?, ?)').run(guildId, key, value);
+}
+
 module.exports = {
   initDB,
   getUser, setLastGacha, setLastDaily, addCoins, deductCoins,
   getRandomCharacter, addToInventory, getInventory,
   getCharacterByName, getUserCharacterByName,
   addCharacter, getAllCharacters,
+  getSetting, setSetting,
 };

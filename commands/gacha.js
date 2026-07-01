@@ -1,8 +1,8 @@
-    const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder } = require('discord.js');
 const db = require('../database');
 
 const GACHA_COST     = 100;
-const GACHA_COOLDOWN = 60 * 60 * 1000;     // 1 jam
+const GACHA_COOLDOWN = 30 * 60 * 1000;      // 30 menit
 const DAILY_COINS    = 300;
 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24 jam
 
@@ -19,6 +19,42 @@ const RARITY_EMOJI = {
   'Super Rare': '🌟',
   'Legendary':  '🔥',
 };
+
+const RARITY_LABEL = {
+  'Common':     'C O M M O N',
+  'Rare':       'R A R E',
+  'Super Rare': 'S U P E R  R A R E  ✨',
+  'Legendary':  '🔥 L E G E N D A R Y 🔥',
+};
+
+// Cari dan kirim notif ke channel gacha-log
+async function sendGachaLog(message, user, char) {
+  const guildId    = message.guild.id;
+  const logChId    = db.getSetting(guildId, 'gacha_log_channel');
+  if (!logChId) return; // Belum di-set, skip
+
+  const logChannel = message.guild.channels.cache.get(logChId);
+  if (!logChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(RARITY_COLOR[char.rarity])
+    .setTitle(`${RARITY_EMOJI[char.rarity]} GACHA PULL — ${RARITY_LABEL[char.rarity]}`)
+    .setDescription(`${user} baru saja mendapatkan karakter baru!`)
+    .addFields(
+      { name: '🦸 Karakter',    value: `**${char.full_name}**`,  inline: false },
+      { name: '📺 Series',      value: char.series,              inline: true  },
+      { name: '🏷️ Franchise',   value: char.franchise,           inline: true  },
+      { name: `${RARITY_EMOJI[char.rarity]} Rarity`, value: `**${char.rarity}**`, inline: true },
+      { name: '❤️ HP',  value: `\`${char.hp}\``,  inline: true },
+      { name: '⚔️ ATK', value: `\`${char.atk}\``, inline: true },
+      { name: '🛡️ DEF', value: `\`${char.def}\``, inline: true },
+      { name: `✨ Skill — ${char.skill_name}`, value: char.skill_desc, inline: false },
+    )
+    .setTimestamp()
+    .setFooter({ text: `Pull oleh ${user.username}` });
+
+  await logChannel.send({ content: `${user}`, embeds: [embed] });
+}
 
 async function handleGacha(message) {
   const userId = message.author.id;
@@ -47,23 +83,29 @@ async function handleGacha(message) {
   db.addToInventory(userId, char.id);
 
   const updatedUser = db.getUser(userId);
+
+  // Embed hasil gacha di channel yang sama
   const embed = new EmbedBuilder()
     .setColor(RARITY_COLOR[char.rarity])
-    .setTitle('🎰  G A C H A  R E S U L T')
+    .setTitle(`🎰 G A C H A — ${RARITY_LABEL[char.rarity]}`)
     .setDescription(`${message.author} mendapatkan...`)
     .addFields(
-      { name: '🦸 Karakter',                     value: `**${char.full_name}**`,               inline: false },
-      { name: '📺 Series',                        value: char.series,                           inline: true  },
-      { name: '🏷️ Franchise',                    value: char.franchise,                        inline: true  },
-      { name: `${RARITY_EMOJI[char.rarity]} Rarity`, value: `**${char.rarity}**`,             inline: true  },
-      { name: '❤️ HP',   value: `\`${char.hp}\``,   inline: true },
-      { name: '⚔️ ATK',  value: `\`${char.atk}\``,  inline: true },
-      { name: '🛡️ DEF',  value: `\`${char.def}\``,  inline: true },
+      { name: '🦸 Karakter',    value: `**${char.full_name}**`,  inline: false },
+      { name: '📺 Series',      value: char.series,              inline: true  },
+      { name: '🏷️ Franchise',   value: char.franchise,           inline: true  },
+      { name: `${RARITY_EMOJI[char.rarity]} Rarity`, value: `**${char.rarity}**`, inline: true },
+      { name: '❤️ HP',  value: `\`${char.hp}\``,  inline: true },
+      { name: '⚔️ ATK', value: `\`${char.atk}\``, inline: true },
+      { name: '🛡️ DEF', value: `\`${char.def}\``, inline: true },
       { name: `✨ Skill — ${char.skill_name}`, value: char.skill_desc, inline: false },
     )
-    .setFooter({ text: `Sisa koin: ${updatedUser.coins} | Gacha lagi: 1 jam lagi` });
+    .setFooter({ text: `Sisa koin: ${updatedUser.coins} 💰 | Cooldown: 30 menit` })
+    .setTimestamp();
 
-  return message.reply({ embeds: [embed] });
+  await message.reply({ embeds: [embed] });
+
+  // Kirim notif ke gacha-log channel
+  await sendGachaLog(message, message.author, char);
 }
 
 async function handleDaily(message) {
