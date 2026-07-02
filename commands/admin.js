@@ -15,7 +15,7 @@ async function handleAddChar(message, args) {
     return message.reply(
       '❓ Format kurang! Gunakan:\n' +
       '`!addchar name|full_name|franchise|series|rarity|hp|atk|def|skill_name|skill_desc|skill_multiplier`\n\n' +
-      '**Rarity valid:** `Common` / `Rare` / `Super Rare` / `Legendary`\n' +
+      '**Rarity valid:** `Common` / `Rare` / `Super Rare` / `Legendary` / `Mythic`\n' +
       '**Contoh:**\n' +
       '`!addchar KR Kabuto|Souji Tendou / KR Kabuto|Kamen Rider|Kamen Rider Kabuto|Super Rare|1010|158|105|Clock Up|Bergerak dengan kecepatan cahaya dan menghantam musuh!|2.3`'
     );
@@ -23,7 +23,7 @@ async function handleAddChar(message, args) {
 
   const [name, full_name, franchise, series, rarity, hp, atk, def_, skill_name, skill_desc, skill_multiplier] = parts;
 
-  const validRarities = ['Common', 'Rare', 'Super Rare', 'Legendary'];
+  const validRarities = ['Common', 'Rare', 'Super Rare', 'Legendary', 'Mythic'];
   if (!validRarities.includes(rarity)) {
     return message.reply(`❌ Rarity tidak valid! Pilih: ${validRarities.join(', ')}`);
   }
@@ -70,7 +70,7 @@ async function handleCharList(message, args) {
     const franchise = isSentai ? 'Super Sentai' : 'Kamen Rider';
     const filtered  = chars.filter(c => c.franchise === franchise);
 
-    const groups = { 'Legendary': [], 'Super Rare': [], 'Rare': [], 'Common': [] };
+    const groups = { 'Mythic': [], 'Legendary': [], 'Super Rare': [], 'Rare': [], 'Common': [] };
     for (const c of filtered) {
       if (groups[c.rarity]) groups[c.rarity].push(c.name);
     }
@@ -101,7 +101,7 @@ async function handleCharList(message, args) {
     if (!serieCount[c.series]) {
       serieCount[c.series]     = 0;
       serieFranchise[c.series] = c.franchise;
-      serieRarity[c.series]    = { Legendary:0, 'Super Rare':0, Rare:0, Common:0 };
+      serieRarity[c.series]    = { Mythic:0, Legendary:0, 'Super Rare':0, Rare:0, Common:0 };
     }
     serieCount[c.series]++;
     serieRarity[c.series][c.rarity]++;
@@ -119,6 +119,7 @@ async function handleCharList(message, args) {
     return seriesList.map(([serie, count]) => {
       const r = serieRarity[serie];
       const badges = [
+        r['Mythic']      ? `🌈${r['Mythic']}`      : '',
         r['Legendary']   ? `🔥${r['Legendary']}`   : '',
         r['Super Rare']  ? `🌟${r['Super Rare']}`  : '',
         r['Rare']        ? `🔵${r['Rare']}`         : '',
@@ -151,6 +152,7 @@ async function handleCharList(message, args) {
     .setFooter({ text: `Total KR: ${krSeries.reduce((a,[,v])=>a+v,0)} karakter` });
 
   // Summary embed
+  const totalMythic     = chars.filter(c => c.rarity === 'Mythic').length;
   const totalLegendary  = chars.filter(c => c.rarity === 'Legendary').length;
   const totalSR         = chars.filter(c => c.rarity === 'Super Rare').length;
   const totalRare       = chars.filter(c => c.rarity === 'Rare').length;
@@ -160,6 +162,7 @@ async function handleCharList(message, args) {
     .setColor(0xffd700)
     .setTitle(`📊 Total Karakter: ${chars.length}`)
     .addFields(
+      { name: '🌈 Mythic',     value: `${totalMythic} karakter`,    inline: true },
       { name: '🔥 Legendary',  value: `${totalLegendary} karakter`,  inline: true },
       { name: '🌟 Super Rare', value: `${totalSR} karakter`,         inline: true },
       { name: '🔵 Rare',       value: `${totalRare} karakter`,       inline: true },
@@ -229,7 +232,7 @@ async function handleBroadcast(message, args) {
       },
       {
         name: '🏆 Rarity',
-        value: '🔥 Legendary • 🌟 Super Rare • 🔵 Rare • ⚪ Common',
+        value: '🌈 Mythic • 🔥 Legendary • 🌟 Super Rare • 🔵 Rare • ⚪ Common',
         inline: false,
       },
     )

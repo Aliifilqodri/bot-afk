@@ -3,7 +3,7 @@ const { Client, GatewayIntentBits, ChannelType, EmbedBuilder } = require('discor
 const { joinVoiceChannel } = require('@discordjs/voice');
 
 const { initDB }                                = require('./database');
-const { handleGacha, handleDaily }              = require('./commands/gacha');
+const { handleGacha, handleDaily, handlePity }  = require('./commands/gacha');
 const { handleInventory, handleCardInfo }        = require('./commands/inventory');
 const { handleDuel, handleAccept, handleDecline,
         handlePick, handlePickSelect, handleAttack, handleSkill,
@@ -69,7 +69,9 @@ client.on('interactionCreate', async (interaction) => {
       await handlePickSelect(interaction);
     } catch (err) {
       console.error('Error pick select:', err);
-      interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
+      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
+      }
     }
     return;
   }
@@ -78,7 +80,9 @@ client.on('interactionCreate', async (interaction) => {
       await handleCombatButton(interaction);
     } catch (err) {
       console.error('Error combat button:', err);
-      interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
+      if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
+        interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
+      }
     }
   }
 });
@@ -109,6 +113,7 @@ client.on('messageCreate', async (message) => {
       // Gacha
       case '!gacha':  return await handleGacha(message);
       case '!daily':  return await handleDaily(message);
+      case '!pity':   return await handlePity(message);
 
       // Inventory
       case '!inv':

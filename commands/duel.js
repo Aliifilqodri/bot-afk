@@ -17,6 +17,35 @@ function combatButtons(userId, skillUsed, ultimateUsed) {
   );
 }
 
+// Wrapper aman buat respond ke interaction — gak pernah throw walau
+// interaction-nya udah expired/kejawab duluan (misal karena bot restart
+// pas ada dropdown/tombol lama yang masih nongol di Discord)
+async function safeReply(interaction, payload) {
+  try {
+    if (!interaction.isRepliable()) return;
+    if (interaction.deferred || interaction.replied) {
+      await interaction.followUp(payload);
+    } else {
+      await interaction.reply(payload);
+    }
+  } catch (err) {
+    console.error('[interaction] Gagal reply (kemungkinan interaction expired):', err.message);
+  }
+}
+
+async function safeUpdate(interaction, payload) {
+  try {
+    if (!interaction.isRepliable()) return;
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply(payload);
+    } else {
+      await interaction.update(payload);
+    }
+  } catch (err) {
+    console.error('[interaction] Gagal update (kemungkinan interaction expired):', err.message);
+  }
+}
+
 // Matiin tombol di pesan giliran sebelumnya biar gak bisa diklik dobel/telat
 async function clearPrompt(session) {
   if (session.lastPromptMessage) {
@@ -208,22 +237,22 @@ async function handlePickSelect(interaction) {
   const [, ownerId] = interaction.customId.split('_'); // "pick_<userId>"
 
   if (interaction.user.id !== ownerId) {
-    return interaction.reply({ content: '❌ Ini bukan pilihan kartu kamu!', ephemeral: true });
+    return safeReply(interaction, { content: '❌ Ini bukan pilihan kartu kamu!', ephemeral: true });
   }
 
   const session = activeDuels.get(ownerId);
   if (!session || !session.picking) {
-    return interaction.update({ content: '❓ Fase pilih karakter sudah selesai / duel gak ditemukan.', components: [] });
+    return safeUpdate(interaction, { content: '❓ Duel ini udah gak aktif lagi (mungkin bot sempet restart). Coba `!duel` baru ya.', embeds: [], components: [] });
   }
   if (session.picked[ownerId]) {
-    return interaction.reply({ content: '✅ Kamu sudah memilih karakter!', ephemeral: true });
+    return safeReply(interaction, { content: '✅ Kamu sudah memilih karakter!', ephemeral: true });
   }
 
   const invId = Number(interaction.values[0]);
   const cards  = db.getInventory(ownerId);
   const char   = cards.find((c) => c.inv_id === invId);
   if (!char) {
-    return interaction.reply({ content: '❌ Karakter gak ditemukan di koleksi kamu.', ephemeral: true });
+    return safeReply(interaction, { content: '❌ Karakter gak ditemukan di koleksi kamu.', ephemeral: true });
   }
 
   session.picked[ownerId]        = true;
@@ -242,7 +271,7 @@ async function handlePickSelect(interaction) {
       { name: `✨ ${char.skill_name}`, value: char.skill_desc, inline: false },
     );
 
-  await interaction.update({ content: null, embeds: [confirmEmbed], components: [] });
+  await safeUpdate(interaction, { content: null, embeds: [confirmEmbed], components: [] });
 
   const bothPicked = Object.values(session.players).every((p) => p.char !== null);
   if (bothPicked) {
@@ -539,28 +568,28 @@ async function handleCombatButton(interaction) {
   const [, action, ownerId] = interaction.customId.split('_'); // "duel_<action>_<userId>"
 
   if (interaction.user.id !== ownerId) {
-    return interaction.reply({ content: '❌ Ini bukan giliran kamu!', ephemeral: true });
+    return safeReply(interaction, { content: '❌ Ini bukan giliran kamu!', ephemeral: true });
   }
 
   const session = activeDuels.get(ownerId);
   if (!session || session.picking) {
-    return interaction.update({ content: '❓ Duel udah gak aktif.', embeds: [], components: [] }).catch(() => {});
+    return safeUpdate(interaction, { content: '❓ Duel ini udah gak aktif lagi (mungkin bot sempet restart). Coba `!duel` baru ya.', embeds: [], components: [] });
   }
   if (action !== 'surrender' && session.turnOrder[session.currentTurn % 2] !== ownerId) {
-    return interaction.reply({ content: '⏳ Bukan giliran kamu!', ephemeral: true });
+    return safeReply(interaction, { content: '⏳ Bukan giliran kamu!', ephemeral: true });
   }
   if (action === 'skill' && session.players[ownerId].skillUsed) {
-    return interaction.reply({ content: '❌ Skill sudah dipakai!', ephemeral: true });
+    return safeReply(interaction, { content: '❌ Skill sudah dipakai!', ephemeral: true });
   }
   if (action === 'ultimate' && session.players[ownerId].ultimateUsed) {
-    return interaction.reply({ content: '❌ Ultimate sudah dipakai!', ephemeral: true });
+    return safeReply(interaction, { content: '❌ Ultimate sudah dipakai!', ephemeral: true });
   }
   if (session.actionLock) {
-    return interaction.reply({ content: '⏳ Tunggu bentar, masih proses...', ephemeral: true });
+    return safeReply(interaction, { content: '⏳ Tunggu bentar, masih proses...', ephemeral: true });
   }
 
   // Matiin tombol di pesan ini dulu biar gak bisa diklik dobel
-  await interaction.update({ components: [] });
+  await safeUpdate(interaction, { components: [] });
   session.lastPromptMessage = null;
 
   session.actionLock = true;

@@ -44,10 +44,10 @@ const extra = [
   { name:'DekaRed Battlizer', full_name:'Banban Akaza / DekaRed Battlizer', franchise:'Super Sentai', series:'Tokusou Sentai Dekaranger: Movie', rarity:'Legendary', hp:1210, atk:180, def:118, skill_name:'Full Blast Mode', skill_desc:'Mode Full Blast DekaRed yang menghancurkan semua alien!', skill_multiplier:2.82 },
   { name:'ShinkenRed Super', full_name:'Takeru Shiba / ShinkenRed Super Mode', franchise:'Super Sentai', series:'Samurai Sentai Shinkenger', rarity:'Legendary', hp:1225, atk:185, def:118, skill_name:'Super Rekka DaiZantou', skill_desc:'Tebasan api super dari lord samurai yang tiada duanya!', skill_multiplier:2.88 },
 
-  // ════════ CROSSOVER SPECIALS ════════
-  { name:'KR Super-1 (Crossover)', full_name:'Kazuya Oki / Super-1 Super Mode', franchise:'Kamen Rider', series:'Kamen Rider Super-1: Movie', rarity:'Super Rare', hp:972, atk:155, def:100, skill_name:'Super Rider Punch', skill_desc:'Pukulan super dari Kamen Rider luar angkasa versi upgrade!', skill_multiplier:2.3 },
-  { name:'KR 1 & 2 (Team)', full_name:'Hongo & Ichimonji / Kamen Rider 1+2', franchise:'Kamen Rider', series:'Kamen Rider: The First', rarity:'Super Rare', hp:980, atk:158, def:102, skill_name:'Double Rider Kick', skill_desc:'Tendangan ganda dua Kamen Rider pertama — kekuatan berlipat ganda!', skill_multiplier:2.4 },
-  { name:'GokaiRed & GokaiSilver (Duo)', full_name:'Marvelous & Gai / Gokai Duo', franchise:'Super Sentai', series:'Kaizoku Sentai Gokaiger: Movie', rarity:'Legendary', hp:1240, atk:185, def:118, skill_name:'Gokai Buster Duo', skill_desc:'Serangan duo bajak laut terkuat yang menghancurkan galaksi!', skill_multiplier:2.9 },
+  // ════════ CROSSOVER SPECIALS (MYTHIC) ════════
+  { name:'KR Super-1 (Crossover)', full_name:'Kazuya Oki / Super-1 Super Mode', franchise:'Kamen Rider', series:'Kamen Rider Super-1: Movie', rarity:'Mythic', hp:1420, atk:215, def:135, skill_name:'Super Rider Punch', skill_desc:'Pukulan super dari Kamen Rider luar angkasa versi upgrade!', skill_multiplier:3.3 },
+  { name:'KR 1 & 2 (Team)', full_name:'Hongo & Ichimonji / Kamen Rider 1+2', franchise:'Kamen Rider', series:'Kamen Rider: The First', rarity:'Mythic', hp:1450, atk:220, def:138, skill_name:'Double Rider Kick', skill_desc:'Tendangan ganda dua Kamen Rider pertama — kekuatan berlipat ganda!', skill_multiplier:3.4 },
+  { name:'GokaiRed & GokaiSilver (Duo)', full_name:'Marvelous & Gai / Gokai Duo', franchise:'Super Sentai', series:'Kaizoku Sentai Gokaiger: Movie', rarity:'Mythic', hp:1480, atk:225, def:140, skill_name:'Gokai Buster Duo', skill_desc:'Serangan duo bajak laut terkuat yang menghancurkan galaksi!', skill_multiplier:3.5 },
 
 ];
 

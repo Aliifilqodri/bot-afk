@@ -12,6 +12,7 @@ async function handleInventory(message) {
 
   // Kelompokkan per rarity
   const groups = {
+    'Mythic': [],
     'Legendary': [],
     'Super Rare': [],
     'Rare': [],

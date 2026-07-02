@@ -2,7 +2,6 @@ const { EmbedBuilder } = require('discord.js');
 const db = require('../database');
 
 const GACHA_COST     = 100;
-const GACHA_COOLDOWN = 30 * 60 * 1000;      // 30 menit
 const DAILY_COINS    = 300;
 const DAILY_COOLDOWN = 24 * 60 * 60 * 1000; // 24 jam
 
@@ -11,6 +10,7 @@ const RARITY_COLOR = {
   'Rare':       0x2196f3,
   'Super Rare': 0xffc107,
   'Legendary':  0xff5722,
+  'Mythic':     0xe91e63,
 };
 
 const RARITY_EMOJI = {
@@ -18,6 +18,7 @@ const RARITY_EMOJI = {
   'Rare':       '🔵',
   'Super Rare': '🌟',
   'Legendary':  '🔥',
+  'Mythic':     '🌈',
 };
 
 const RARITY_LABEL = {
@@ -25,6 +26,7 @@ const RARITY_LABEL = {
   'Rare':       'R A R E',
   'Super Rare': 'S U P E R  R A R E  ✨',
   'Legendary':  '🔥 L E G E N D A R Y 🔥',
+  'Mythic':     '🌈 M Y T H I C 🌈',
 };
 
 // Cari dan kirim notif ke channel gacha-log
@@ -36,10 +38,16 @@ async function sendGachaLog(message, user, char) {
   const logChannel = message.guild.channels.cache.get(logChId);
   if (!logChannel) return;
 
+  const pity = char._pity;
+
   const embed = new EmbedBuilder()
     .setColor(RARITY_COLOR[char.rarity])
     .setTitle(`${RARITY_EMOJI[char.rarity]} GACHA PULL — ${RARITY_LABEL[char.rarity]}`)
-    .setDescription(`${user} baru saja mendapatkan karakter baru!`)
+    .setDescription(
+      `${user} baru saja mendapatkan karakter baru!` +
+      (pity?.forced === 'legendary' ? `\n💎 **PITY GUARANTEE — Legendary!**` : '') +
+      (pity?.forced === 'sr' ? `\n✨ **PITY GUARANTEE — Super Rare!**` : '')
+    )
     .addFields(
       { name: '🦸 Karakter',    value: `**${char.full_name}**`,  inline: false },
       { name: '📺 Series',      value: char.series,              inline: true  },
@@ -59,14 +67,6 @@ async function sendGachaLog(message, user, char) {
 async function handleGacha(message) {
   const userId = message.author.id;
   const user   = db.getUser(userId);
-  const now    = Date.now();
-
-  // Cek cooldown
-  const elapsed = now - user.last_gacha;
-  if (elapsed < GACHA_COOLDOWN) {
-    const mntLeft = Math.ceil((GACHA_COOLDOWN - elapsed) / 60000);
-    return message.reply(`⏳ Cooldown gacha! Tunggu **${mntLeft} menit** lagi ya.`);
-  }
 
   // Cek koin
   if (user.coins < GACHA_COST) {
@@ -75,20 +75,24 @@ async function handleGacha(message) {
     );
   }
 
-  const char = db.getRandomCharacter();
+  const char = db.getRandomCharacter(userId);
   if (!char) return message.reply('❌ Gagal gacha, database kosong!');
 
   db.deductCoins(userId, GACHA_COST);
-  db.setLastGacha(userId);
   db.addToInventory(userId, char.id);
 
   const updatedUser = db.getUser(userId);
+  const pity = char._pity;
 
   // Embed hasil gacha di channel yang sama
   const embed = new EmbedBuilder()
     .setColor(RARITY_COLOR[char.rarity])
     .setTitle(`🎰 G A C H A — ${RARITY_LABEL[char.rarity]}`)
-    .setDescription(`${message.author} mendapatkan...`)
+    .setDescription(
+      `${message.author} mendapatkan...` +
+      (pity.forced === 'legendary' ? `\n💎 **PITY GUARANTEE — Legendary!**` : '') +
+      (pity.forced === 'sr' ? `\n✨ **PITY GUARANTEE — Super Rare!**` : '')
+    )
     .addFields(
       { name: '🦸 Karakter',    value: `**${char.full_name}**`,  inline: false },
       { name: '📺 Series',      value: char.series,              inline: true  },
@@ -99,13 +103,39 @@ async function handleGacha(message) {
       { name: '🛡️ DEF', value: `\`${char.def}\``, inline: true },
       { name: `✨ Skill — ${char.skill_name}`, value: char.skill_desc, inline: false },
     )
-    .setFooter({ text: `Sisa koin: ${updatedUser.coins} 💰 | Cooldown: 30 menit` })
+    .setFooter({ text: `Sisa koin: ${updatedUser.coins} 💰 | Cek progress pity: !pity` })
     .setTimestamp();
 
   await message.reply({ embeds: [embed] });
 
   // Kirim notif ke gacha-log channel
   await sendGachaLog(message, message.author, char);
+}
+
+async function handlePity(message) {
+  const status = db.getPityStatus(message.author.id);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x673ab7)
+    .setTitle(`📊 Pity Progress — ${message.author.username}`)
+    .addFields(
+      {
+        name: '💎 Legendary',
+        value: `\`${status.pityLegendary}/${status.hardPityLegendary}\` pull\n` +
+               (status.pityLegendary >= status.softPityLegendaryStart
+                 ? `🔥 Soft pity aktif, chance naik tiap pull!`
+                 : `Soft pity mulai di pull ke-${status.softPityLegendaryStart + 1}`),
+        inline: true,
+      },
+      {
+        name: '✨ Super Rare',
+        value: `\`${status.pitySR}/${status.hardPitySR}\` pull\nDijamin SR+ tiap ${status.hardPitySR} pull`,
+        inline: true,
+      },
+    )
+    .setFooter({ text: `Pity reset otomatis tiap dapet rarity yang bersangkutan | 🌈 Mythic (0.5%) di luar sistem pity — murni keberuntungan!` });
+
+  return message.reply({ embeds: [embed] });
 }
 
 async function handleDaily(message) {
@@ -132,4 +162,4 @@ async function handleDaily(message) {
   return message.reply({ embeds: [embed] });
 }
 
-module.exports = { handleGacha, handleDaily, RARITY_COLOR, RARITY_EMOJI };
+module.exports = { handleGacha, handleDaily, handlePity, RARITY_COLOR, RARITY_EMOJI };

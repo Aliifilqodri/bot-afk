@@ -33,7 +33,9 @@ function initDB() {
       user_id TEXT PRIMARY KEY,
       coins INTEGER DEFAULT 1000,
       last_gacha INTEGER DEFAULT 0,
-      last_daily INTEGER DEFAULT 0
+      last_daily INTEGER DEFAULT 0,
+      pity_legendary INTEGER DEFAULT 0,
+      pity_sr INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS inventory (
@@ -52,6 +54,15 @@ function initDB() {
     );
   `);
 
+  // Migrasi buat database lama yang belum punya kolom pity
+  for (const col of ['pity_legendary', 'pity_sr']) {
+    try {
+      db.exec(`ALTER TABLE users ADD COLUMN ${col} INTEGER DEFAULT 0`);
+    } catch (e) {
+      if (!/duplicate column/i.test(e.message)) throw e;
+    }
+  }
+
   // Seed characters kalau table masih kosong
   const count = db.prepare('SELECT COUNT(*) as c FROM characters').get();
   if (count.c === 0) {
@@ -67,6 +78,19 @@ function initDB() {
     insertMany(allCharacters);
     console.log(`[DB] Seeded ${allCharacters.length} karakter.`);
   }
+
+  // Migrasi: sync rarity/stat karakter yang di-promote ke tier baru (Mythic dkk)
+  // biar database yang udah ke-seed sebelumnya ikut ke-update, bukan cuma DB baru.
+  const updateChar = db.prepare(`
+    UPDATE characters SET
+      rarity = @rarity, hp = @hp, atk = @atk, def = @def,
+      skill_name = @skill_name, skill_desc = @skill_desc, skill_multiplier = @skill_multiplier
+    WHERE name = @name
+  `);
+  const syncMany = db.transaction((chars) => {
+    for (const c of chars) updateChar.run(c);
+  });
+  syncMany(allCharacters);
 
   console.log('[DB] Database siap!');
 }
@@ -97,17 +121,87 @@ function deductCoins(userId, amount) {
   db.prepare('UPDATE users SET coins = coins - ? WHERE user_id = ?').run(amount, userId);
 }
 
-// ── Gacha ─────────────────────────────────────────
-function getRandomCharacter() {
+// ── Gacha (dengan pity system) ─────────────────────
+const MYTHIC_CHANCE            = 0.5; // % — independen dari pity, gak ada jaminan
+const HARD_PITY_LEGENDARY      = 50; // dijamin Legendary di pull ke-50 sejak terakhir dapet
+const SOFT_PITY_LEGENDARY_START = 30; // mulai pull ke-31, chance Legendary naik tiap pull
+const HARD_PITY_SR             = 10; // dijamin minimal Super Rare tiap 10 pull
+
+function rollRarity(pityLegendary, pitySR) {
+  // Mythic — tier paling langka, chance flat, TIDAK kena pity/jaminan apapun
+  if (Math.random() * 100 < MYTHIC_CHANCE) {
+    return { rarity: 'Mythic', forced: null };
+  }
+
+  // Hard pity Legendary — kalau pull ini bakal jadi pull ke-50, paksa Legendary
+  if (pityLegendary + 1 >= HARD_PITY_LEGENDARY) {
+    return { rarity: 'Legendary', forced: 'legendary' };
+  }
+
+  const guaranteeSR = pitySR + 1 >= HARD_PITY_SR;
+
+  // Soft pity Legendary — makin lama gak dapet, chance-nya makin naik
+  let legendaryChance = 3;
+  if (pityLegendary >= SOFT_PITY_LEGENDARY_START) {
+    legendaryChance += (pityLegendary - SOFT_PITY_LEGENDARY_START + 1) * 5;
+  }
+  const srChance = 12;
+
   const roll = Math.random() * 100;
-  let rarity;
-  if (roll < 3)       rarity = 'Legendary';
-  else if (roll < 15) rarity = 'Super Rare';
-  else if (roll < 40) rarity = 'Rare';
-  else                rarity = 'Common';
+  if (roll < legendaryChance)              return { rarity: 'Legendary',  forced: null };
+  if (roll < legendaryChance + srChance)   return { rarity: 'Super Rare', forced: null };
+  if (guaranteeSR)                         return { rarity: 'Super Rare', forced: 'sr' };
+  if (roll < legendaryChance + srChance + 25) return { rarity: 'Rare',    forced: null };
+  return { rarity: 'Common', forced: null };
+}
+
+function getRandomCharacter(userId) {
+  const user = getUser(userId);
+  const pityLegendaryBefore = user.pity_legendary || 0;
+  const pitySRBefore        = user.pity_sr || 0;
+
+  const { rarity, forced } = rollRarity(pityLegendaryBefore, pitySRBefore);
 
   const pool = db.prepare('SELECT * FROM characters WHERE rarity = ?').all(rarity);
-  return pool[Math.floor(Math.random() * pool.length)];
+  const char = pool[Math.floor(Math.random() * pool.length)];
+  if (!char) return null;
+
+  let pityLegendaryAfter, pitySRAfter;
+  if (rarity === 'Mythic' || rarity === 'Legendary') {
+    pityLegendaryAfter = 0;
+    pitySRAfter = 0;
+  } else if (rarity === 'Super Rare') {
+    pityLegendaryAfter = pityLegendaryBefore + 1;
+    pitySRAfter = 0;
+  } else {
+    pityLegendaryAfter = pityLegendaryBefore + 1;
+    pitySRAfter = pitySRBefore + 1;
+  }
+
+  db.prepare('UPDATE users SET pity_legendary = ?, pity_sr = ? WHERE user_id = ?')
+    .run(pityLegendaryAfter, pitySRAfter, userId);
+
+  return {
+    ...char,
+    _pity: {
+      forced,
+      pityLegendary: pityLegendaryAfter,
+      pitySR: pitySRAfter,
+      hardPityLegendary: HARD_PITY_LEGENDARY,
+      hardPitySR: HARD_PITY_SR,
+    },
+  };
+}
+
+function getPityStatus(userId) {
+  const user = getUser(userId);
+  return {
+    pityLegendary: user.pity_legendary || 0,
+    pitySR: user.pity_sr || 0,
+    hardPityLegendary: HARD_PITY_LEGENDARY,
+    hardPitySR: HARD_PITY_SR,
+    softPityLegendaryStart: SOFT_PITY_LEGENDARY_START,
+  };
 }
 
 function addToInventory(userId, characterId) {
@@ -122,10 +216,11 @@ function getInventory(userId) {
     WHERE i.user_id = ?
     ORDER BY
       CASE c.rarity
-        WHEN 'Legendary' THEN 1
-        WHEN 'Super Rare' THEN 2
-        WHEN 'Rare' THEN 3
-        ELSE 4
+        WHEN 'Mythic' THEN 1
+        WHEN 'Legendary' THEN 2
+        WHEN 'Super Rare' THEN 3
+        WHEN 'Rare' THEN 4
+        ELSE 5
       END, c.name ASC
   `).all(userId);
 }
@@ -177,7 +272,7 @@ function setSetting(guildId, key, value) {
 module.exports = {
   initDB,
   getUser, setLastGacha, setLastDaily, addCoins, deductCoins,
-  getRandomCharacter, addToInventory, getInventory,
+  getRandomCharacter, getPityStatus, addToInventory, getInventory,
   getCharacterByName, getUserCharacterByName,
   addCharacter, getAllCharacters,
   getSetting, setSetting,
