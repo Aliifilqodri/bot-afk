@@ -172,16 +172,21 @@ async function sendPickMenus(channel, session) {
       continue;
     }
 
+    const nameCount = {};
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`pick_${uid}`)
       .setPlaceholder(`${player.username} — pilih karaktermu...`)
       .addOptions(
-        cards.map((c) => ({
-          label: c.full_name?.slice(0, 100) || c.name,
-          description: `${c.rarity} • ATK ${c.atk} / DEF ${c.def} / HP ${c.hp}`.slice(0, 100),
-          value: String(c.id),
-          emoji: RARITY_EMOJI[c.rarity],
-        }))
+        cards.map((c) => {
+          nameCount[c.id] = (nameCount[c.id] || 0) + 1;
+          const dupeSuffix = nameCount[c.id] > 1 ? ` (#${nameCount[c.id]})` : '';
+          return {
+            label: `${c.full_name?.slice(0, 95) || c.name}${dupeSuffix}`,
+            description: `${c.rarity} • ATK ${c.atk} / DEF ${c.def} / HP ${c.hp}`.slice(0, 100),
+            value: String(c.inv_id),
+            emoji: RARITY_EMOJI[c.rarity],
+          };
+        })
       );
 
     const row = new ActionRowBuilder().addComponents(menu);
@@ -214,9 +219,9 @@ async function handlePickSelect(interaction) {
     return interaction.reply({ content: '✅ Kamu sudah memilih karakter!', ephemeral: true });
   }
 
-  const charId = Number(interaction.values[0]);
+  const invId = Number(interaction.values[0]);
   const cards  = db.getInventory(ownerId);
-  const char   = cards.find((c) => c.id === charId);
+  const char   = cards.find((c) => c.inv_id === invId);
   if (!char) {
     return interaction.reply({ content: '❌ Karakter gak ditemukan di koleksi kamu.', ephemeral: true });
   }
