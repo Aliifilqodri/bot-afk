@@ -7,7 +7,7 @@ const { handleGacha, handleDaily }              = require('./commands/gacha');
 const { handleInventory, handleCardInfo }        = require('./commands/inventory');
 const { handleDuel, handleAccept, handleDecline,
         handlePick, handlePickSelect, handleAttack, handleSkill,
-        handleUltimate, handleSurrender }        = require('./commands/duel');
+        handleUltimate, handleSurrender, handleCombatButton }        = require('./commands/duel');
 const { handleAddChar, handleCharList,
         handleBroadcast, handleSetChannel }             = require('./commands/admin');
 
@@ -62,14 +62,22 @@ client.once('ready', () => {
 
 client.on('guildCreate', (guild) => joinAfkChannel(guild));
 
-// ── Dropdown pick interaction ──────────────────────
+// ── Dropdown pick & combat button interaction ──────
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isStringSelectMenu()) return;
-  if (interaction.customId.startsWith('pick_')) {
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith('pick_')) {
     try {
       await handlePickSelect(interaction);
     } catch (err) {
       console.error('Error pick select:', err);
+      interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
+    }
+    return;
+  }
+  if (interaction.isButton() && interaction.customId.startsWith('duel_')) {
+    try {
+      await handleCombatButton(interaction);
+    } catch (err) {
+      console.error('Error combat button:', err);
       interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
     }
   }

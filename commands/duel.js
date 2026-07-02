@@ -1,9 +1,29 @@
-const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('../database');
 const { RARITY_EMOJI, RARITY_COLOR } = require('./gacha');
 
 const pendingDuels = new Map();
 const activeDuels  = new Map();
+
+const SEAT_COLOR = { red: 0xf44336, blue: 0x2196f3 };
+const SEAT_EMOJI = { red: '🔴', blue: '🔵' };
+
+function combatButtons(userId, skillUsed, ultimateUsed) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`duel_attack_${userId}`).setLabel('Attack').setEmoji('👊').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`duel_skill_${userId}`).setLabel('Skill').setEmoji('✨').setStyle(ButtonStyle.Success).setDisabled(skillUsed),
+    new ButtonBuilder().setCustomId(`duel_ultimate_${userId}`).setLabel('Ultimate').setEmoji('💀').setStyle(ButtonStyle.Danger).setDisabled(ultimateUsed),
+    new ButtonBuilder().setCustomId(`duel_surrender_${userId}`).setLabel('Surrender').setEmoji('🏳️').setStyle(ButtonStyle.Secondary),
+  );
+}
+
+// Matiin tombol di pesan giliran sebelumnya biar gak bisa diklik dobel/telat
+async function clearPrompt(session) {
+  if (session.lastPromptMessage) {
+    await session.lastPromptMessage.edit({ components: [] }).catch(() => {});
+    session.lastPromptMessage = null;
+  }
+}
 
 // ── Animasi cutscene ──────────────────────────────
 async function sendCutscene(channel, lines, delayMs = 900) {
@@ -18,7 +38,7 @@ function hpBar(current, max) {
   const filled = Math.round(pct * 10);
   const empty  = 10 - filled;
   const color  = pct > 0.5 ? '🟩' : pct > 0.25 ? '🟨' : '🟥';
-  return `${color.repeat(filled)}⬛`.repeat(0) + `${color.repeat(filled)}${'⬛'.repeat(empty)} **${current}/${max}**`;
+  return `${color.repeat(filled)}${'⬛'.repeat(empty)} **${current}/${max}**`;
 }
 
 function calcDamage(atk, def) {
@@ -106,8 +126,16 @@ async function handleAccept(message) {
   const session = {
     channelId: message.channel.id,
     players: {
-      [challengerId]: { userId: challengerId, username: challenger.user.username, char: null, hp: 0, maxHp: 0, skillUsed: false, ultimateUsed: false },
-      [userId]:       { userId, username: message.author.username, char: null, hp: 0, maxHp: 0, skillUsed: false, ultimateUsed: false },
+      [challengerId]: {
+        userId: challengerId, username: challenger.user.username,
+        avatar: challenger.user.displayAvatarURL({ size: 128 }),
+        seat: 'red', char: null, hp: 0, maxHp: 0, skillUsed: false, ultimateUsed: false,
+      },
+      [userId]: {
+        userId, username: message.author.username,
+        avatar: message.author.displayAvatarURL({ size: 128 }),
+        seat: 'blue', char: null, hp: 0, maxHp: 0, skillUsed: false, ultimateUsed: false,
+      },
     },
     turnOrder: [challengerId, userId],
     currentTurn: 0,
@@ -158,10 +186,15 @@ async function sendPickMenus(channel, session) {
 
     const row = new ActionRowBuilder().addComponents(menu);
 
-    await channel.send({
-      content: `📦 **${player.username}** — pilih karakter buat duel ini:`,
-      components: [row],
-    });
+    const embed = new EmbedBuilder()
+      .setColor(SEAT_COLOR[player.seat])
+      .setAuthor({ name: player.username, iconURL: player.avatar })
+      .setTitle(`${SEAT_EMOJI[player.seat]} Pilih karaktermu`)
+      .setDescription(`Punya **${cards.length}** kartu di koleksi. Pilih lewat dropdown di bawah ⬇️`)
+      .setThumbnail(player.avatar)
+      .setFooter({ text: 'Cuma kamu yang bisa milih di dropdown ini' });
+
+    await channel.send({ embeds: [embed], components: [row] });
   }
 }
 
@@ -193,10 +226,18 @@ async function handlePickSelect(interaction) {
   session.players[ownerId].hp    = char.hp;
   session.players[ownerId].maxHp = char.hp;
 
-  await interaction.update({
-    content: `✅ **${session.players[ownerId].username}** memilih **${char.full_name}** ${RARITY_EMOJI[char.rarity]}!`,
-    components: [],
-  });
+  const confirmEmbed = new EmbedBuilder()
+    .setColor(RARITY_COLOR[char.rarity])
+    .setAuthor({ name: session.players[ownerId].username, iconURL: session.players[ownerId].avatar })
+    .setTitle(`✅ ${char.full_name} ${RARITY_EMOJI[char.rarity]}`)
+    .addFields(
+      { name: '❤️ HP',  value: `\`${char.hp}\``,  inline: true },
+      { name: '⚔️ ATK', value: `\`${char.atk}\``, inline: true },
+      { name: '🛡️ DEF', value: `\`${char.def}\``, inline: true },
+      { name: `✨ ${char.skill_name}`, value: char.skill_desc, inline: false },
+    );
+
+  await interaction.update({ content: null, embeds: [confirmEmbed], components: [] });
 
   const bothPicked = Object.values(session.players).every((p) => p.char !== null);
   if (bothPicked) {
@@ -235,7 +276,18 @@ async function handlePick(message, args) {
   session.players[userId].hp    = char.hp;
   session.players[userId].maxHp = char.hp;
 
-  await message.reply(`✅ **${message.author.username}** memilih **${char.full_name}** ${RARITY_EMOJI[char.rarity]}!`);
+  const confirmEmbed = new EmbedBuilder()
+    .setColor(RARITY_COLOR[char.rarity])
+    .setAuthor({ name: session.players[userId].username, iconURL: session.players[userId].avatar })
+    .setTitle(`✅ ${char.full_name} ${RARITY_EMOJI[char.rarity]}`)
+    .addFields(
+      { name: '❤️ HP',  value: `\`${char.hp}\``,  inline: true },
+      { name: '⚔️ ATK', value: `\`${char.atk}\``, inline: true },
+      { name: '🛡️ DEF', value: `\`${char.def}\``, inline: true },
+      { name: `✨ ${char.skill_name}`, value: char.skill_desc, inline: false },
+    );
+
+  await message.reply({ embeds: [confirmEmbed] });
 
   const bothPicked = Object.values(session.players).every(p => p.char !== null);
   if (bothPicked) {
@@ -249,22 +301,24 @@ async function startDuel(channel, session) {
 
   await sendCutscene(channel, [
     `🎬 **═══════════ DUEL DIMULAI! ═══════════**`,
-    `🔴 **${p1.username}** → ${RARITY_EMOJI[p1.char.rarity]} **${p1.char.full_name}**`,
+    `${SEAT_EMOJI[p1.seat]} **${p1.username}** → ${RARITY_EMOJI[p1.char.rarity]} **${p1.char.full_name}**`,
     `🆚`,
-    `🔵 **${p2.username}** → ${RARITY_EMOJI[p2.char.rarity]} **${p2.char.full_name}**`,
+    `${SEAT_EMOJI[p2.seat]} **${p2.username}** → ${RARITY_EMOJI[p2.char.rarity]} **${p2.char.full_name}**`,
     `**═══════════════════════════════**`,
   ], 600);
 
-  const embed = new EmbedBuilder()
-    .setColor(0xf44336)
-    .setTitle('⚔️ STATUS AWAL DUEL')
-    .addFields(
-      { name: `🔴 ${p1.username} — ${p1.char.name}`, value: `❤️ ${hpBar(p1.hp, p1.maxHp)}\n⚔️ ATK: **${p1.char.atk}** | 🛡️ DEF: **${p1.char.def}**\n✨ Skill: **${p1.char.skill_name}**`, inline: false },
-      { name: `🔵 ${p2.username} — ${p2.char.name}`, value: `❤️ ${hpBar(p2.hp, p2.maxHp)}\n⚔️ ATK: **${p2.char.atk}** | 🛡️ DEF: **${p2.char.def}**\n✨ Skill: **${p2.char.skill_name}**`, inline: false },
-    )
-    .setFooter({ text: 'Perintah: !attack | !skill (1x) | !ultimate (1x, high risk!) | !surrender' });
+  const statusEmbed = (p) => new EmbedBuilder()
+    .setColor(SEAT_COLOR[p.seat])
+    .setAuthor({ name: p.username, iconURL: p.avatar })
+    .setTitle(`${SEAT_EMOJI[p.seat]} ${p.char.name}`)
+    .setThumbnail(p.avatar)
+    .setDescription(
+      `❤️ ${hpBar(p.hp, p.maxHp)}\n` +
+      `⚔️ ATK: **${p.char.atk}**  |  🛡️ DEF: **${p.char.def}**\n` +
+      `✨ Skill: **${p.char.skill_name}**`
+    );
 
-  await channel.send({ embeds: [embed] });
+  await channel.send({ embeds: [statusEmbed(p1), statusEmbed(p2)] });
   await new Promise(r => setTimeout(r, 1000));
   await promptTurn(channel, session);
 }
@@ -272,8 +326,8 @@ async function startDuel(channel, session) {
 async function promptTurn(channel, session) {
   const currentId = session.turnOrder[session.currentTurn % 2];
   const current   = session.players[currentId];
-  const skillNote    = current.skillUsed    ? '~~!skill~~'    : '**!skill** ✨';
-  const ultimateNote = current.ultimateUsed ? '~~!ultimate~~' : '**!ultimate** 💀';
+  const otherId   = session.turnOrder.find(id => id !== currentId);
+  const other     = session.players[otherId];
 
   // Auto-end kalau turn udah kebanyakan (lebih dari 30 turn)
   if (session.currentTurn >= 30) {
@@ -284,25 +338,30 @@ async function promptTurn(channel, session) {
     return endDuel(channel, session, winnerId, loserId);
   }
 
-  await channel.send(
-    `🎮 Giliran **${current.username}** (**${current.char.name}**) — Turn ${session.currentTurn + 1}\n` +
-    `→ **!attack** 👊 | ${skillNote} | ${ultimateNote} | **!surrender** 🏳️`
-  );
+  const embed = new EmbedBuilder()
+    .setColor(SEAT_COLOR[current.seat])
+    .setAuthor({ name: `${current.username} — giliranmu!`, iconURL: current.avatar })
+    .setTitle(`🎮 Turn ${session.currentTurn + 1} — ${current.char.name}`)
+    .setThumbnail(current.avatar)
+    .addFields(
+      { name: `${SEAT_EMOJI[current.seat]} ${current.username}`, value: hpBar(current.hp, current.maxHp), inline: true },
+      { name: `${SEAT_EMOJI[other.seat]} ${other.username}`, value: hpBar(other.hp, other.maxHp), inline: true },
+    )
+    .setFooter({ text: `${current.skillUsed ? 'Skill terpakai' : 'Skill ✨ siap'} | ${current.ultimateUsed ? 'Ultimate terpakai' : 'Ultimate 💀 siap'}` });
+
+  const row = combatButtons(currentId, current.skillUsed, current.ultimateUsed);
+  session.lastPromptMessage = await channel.send({ content: `<@${currentId}>`, embeds: [embed], components: [row] });
 }
 
-// ── !attack ───────────────────────────────────────
-async function handleAttack(message) {
-  const userId  = message.author.id;
-  const session = activeDuels.get(userId);
-  if (!session || session.picking) return;
-  if (session.turnOrder[session.currentTurn % 2] !== userId) return message.reply('⏳ Bukan giliran kamu!');
+// ── Attack ────────────────────────────────────────
+async function doAttack(channel, session, userId) {
+  await clearPrompt(session);
 
   const attacker   = session.players[userId];
   const defenderId = session.turnOrder.find(id => id !== userId);
   const defender   = session.players[defenderId];
 
-  // Animasi serangan
-  await sendCutscene(message.channel, attackAnimation(attacker.username, attacker.char.name), 700);
+  await sendCutscene(channel, attackAnimation(attacker.username, attacker.char.name), 700);
 
   const dmg = calcDamage(attacker.char.atk, defender.char.def);
   defender.hp = Math.max(0, defender.hp - dmg);
@@ -310,34 +369,41 @@ async function handleAttack(message) {
 
   const embed = new EmbedBuilder()
     .setColor(0xff9800)
+    .setAuthor({ name: attacker.username, iconURL: attacker.avatar })
     .setTitle('👊 Serangan Normal!')
+    .setThumbnail(attacker.avatar)
     .addFields(
-      { name: `🔴 ${attacker.username}`, value: `❤️ ${hpBar(attacker.hp, attacker.maxHp)}`, inline: true },
-      { name: `🔵 ${defender.username}`, value: `❤️ ${hpBar(defender.hp, defender.maxHp)}\n*-${dmg} HP!*`, inline: true },
-    );
+      { name: `${SEAT_EMOJI[attacker.seat]} ${attacker.username}`, value: hpBar(attacker.hp, attacker.maxHp), inline: true },
+      { name: `${SEAT_EMOJI[defender.seat]} ${defender.username}`, value: `${hpBar(defender.hp, defender.maxHp)}\n*-${dmg} HP!*`, inline: true },
+    )
+    .setFooter({ text: `Turn ${session.currentTurn}` });
 
-  await message.channel.send({ embeds: [embed] });
+  await channel.send({ embeds: [embed] });
 
-  if (defender.hp <= 0) return endDuel(message.channel, session, userId, defenderId);
+  if (defender.hp <= 0) return endDuel(channel, session, userId, defenderId);
   await new Promise(r => setTimeout(r, 500));
-  await promptTurn(message.channel, session);
+  await promptTurn(channel, session);
 }
 
-// ── !skill ────────────────────────────────────────
-async function handleSkill(message) {
+async function handleAttack(message) {
   const userId  = message.author.id;
   const session = activeDuels.get(userId);
   if (!session || session.picking) return;
   if (session.turnOrder[session.currentTurn % 2] !== userId) return message.reply('⏳ Bukan giliran kamu!');
+  if (session.actionLock) return;
+  session.actionLock = true;
+  try { await doAttack(message.channel, session, userId); } finally { session.actionLock = false; }
+}
 
-  const attacker = session.players[userId];
-  if (attacker.skillUsed) return message.reply('❌ Skill sudah dipakai! Gunakan `!attack`.');
+// ── Skill ─────────────────────────────────────────
+async function doSkill(channel, session, userId) {
+  await clearPrompt(session);
 
+  const attacker   = session.players[userId];
   const defenderId = session.turnOrder.find(id => id !== userId);
   const defender   = session.players[defenderId];
 
-  // Animasi skill — lebih dramatis
-  await sendCutscene(message.channel, skillAnimation(attacker.username, attacker.char.name, attacker.char.skill_name), 750);
+  await sendCutscene(channel, skillAnimation(attacker.username, attacker.char.name, attacker.char.skill_name), 750);
 
   const baseDmg  = calcDamage(attacker.char.atk, defender.char.def);
   const skillDmg = Math.floor(baseDmg * attacker.char.skill_multiplier);
@@ -347,34 +413,43 @@ async function handleSkill(message) {
 
   const embed = new EmbedBuilder()
     .setColor(0x9c27b0)
+    .setAuthor({ name: attacker.username, iconURL: attacker.avatar })
     .setTitle(`✨ SKILL: ${attacker.char.skill_name}!`)
     .setDescription(`*${attacker.char.skill_desc}*`)
+    .setThumbnail(attacker.avatar)
     .addFields(
-      { name: `🔴 ${attacker.username}`, value: `❤️ ${hpBar(attacker.hp, attacker.maxHp)}`, inline: true },
-      { name: `🔵 ${defender.username}`, value: `❤️ ${hpBar(defender.hp, defender.maxHp)}\n*-${skillDmg} HP! (x${attacker.char.skill_multiplier})*`, inline: true },
-    );
+      { name: `${SEAT_EMOJI[attacker.seat]} ${attacker.username}`, value: hpBar(attacker.hp, attacker.maxHp), inline: true },
+      { name: `${SEAT_EMOJI[defender.seat]} ${defender.username}`, value: `${hpBar(defender.hp, defender.maxHp)}\n*-${skillDmg} HP! (x${attacker.char.skill_multiplier})*`, inline: true },
+    )
+    .setFooter({ text: `Turn ${session.currentTurn}` });
 
-  await message.channel.send({ embeds: [embed] });
+  await channel.send({ embeds: [embed] });
 
-  if (defender.hp <= 0) return endDuel(message.channel, session, userId, defenderId);
+  if (defender.hp <= 0) return endDuel(channel, session, userId, defenderId);
   await new Promise(r => setTimeout(r, 500));
-  await promptTurn(message.channel, session);
+  await promptTurn(channel, session);
 }
 
-// ── !ultimate ─────────────────────────────────────
-async function handleUltimate(message) {
+async function handleSkill(message) {
   const userId  = message.author.id;
   const session = activeDuels.get(userId);
   if (!session || session.picking) return;
   if (session.turnOrder[session.currentTurn % 2] !== userId) return message.reply('⏳ Bukan giliran kamu!');
+  if (session.players[userId].skillUsed) return message.reply('❌ Skill sudah dipakai! Gunakan `!attack`.');
+  if (session.actionLock) return;
+  session.actionLock = true;
+  try { await doSkill(message.channel, session, userId); } finally { session.actionLock = false; }
+}
 
-  const attacker = session.players[userId];
-  if (attacker.ultimateUsed) return message.reply('❌ Ultimate sudah dipakai! Hanya bisa sekali per duel.');
+// ── Ultimate ──────────────────────────────────────
+async function doUltimate(channel, session, userId) {
+  await clearPrompt(session);
 
+  const attacker   = session.players[userId];
   const defenderId = session.turnOrder.find(id => id !== userId);
   const defender   = session.players[defenderId];
 
-  await sendCutscene(message.channel, ultimateAnimation(attacker.username, attacker.char.name), 800);
+  await sendCutscene(channel, ultimateAnimation(attacker.username, attacker.char.name), 800);
 
   // Ultimate: damage sangat besar TAPI ada chance 25% backfire (balik ke diri sendiri)
   const roll      = Math.random();
@@ -390,47 +465,110 @@ async function handleUltimate(message) {
     const selfDmg = Math.floor(ultDmg * 0.5);
     attacker.hp = Math.max(0, attacker.hp - selfDmg);
 
-    await message.channel.send(`💥 **BACKFIRE!!** Serangan ultimate **${attacker.char.name}** berbalik!\n**-${selfDmg} HP** ke **${attacker.username}** sendiri! 😱`);
+    await channel.send(`💥 **BACKFIRE!!** Serangan ultimate **${attacker.char.name}** berbalik!\n**-${selfDmg} HP** ke **${attacker.username}** sendiri! 😱`);
 
     const embed = new EmbedBuilder()
       .setColor(0xff1744)
+      .setAuthor({ name: attacker.username, iconURL: attacker.avatar })
       .setTitle('💀 ULTIMATE — BACKFIRE!')
+      .setThumbnail(attacker.avatar)
       .addFields(
-        { name: `🔴 ${attacker.username}`, value: `❤️ ${hpBar(attacker.hp, attacker.maxHp)}\n*-${selfDmg} HP (backfire!)*`, inline: true },
-        { name: `🔵 ${defender.username}`, value: `❤️ ${hpBar(defender.hp, defender.maxHp)}`, inline: true },
-      );
-    await message.channel.send({ embeds: [embed] });
+        { name: `${SEAT_EMOJI[attacker.seat]} ${attacker.username}`, value: `${hpBar(attacker.hp, attacker.maxHp)}\n*-${selfDmg} HP (backfire!)*`, inline: true },
+        { name: `${SEAT_EMOJI[defender.seat]} ${defender.username}`, value: hpBar(defender.hp, defender.maxHp), inline: true },
+      )
+      .setFooter({ text: `Turn ${session.currentTurn}` });
+    await channel.send({ embeds: [embed] });
 
-    if (attacker.hp <= 0) return endDuel(message.channel, session, defenderId, userId);
+    if (attacker.hp <= 0) return endDuel(channel, session, defenderId, userId);
   } else {
     // Hit normal
     defender.hp = Math.max(0, defender.hp - ultDmg);
 
     const embed = new EmbedBuilder()
       .setColor(0x000000)
+      .setAuthor({ name: attacker.username, iconURL: attacker.avatar })
       .setTitle('💀 ULTIMATE HIT!')
+      .setThumbnail(attacker.avatar)
       .addFields(
-        { name: `🔴 ${attacker.username}`, value: `❤️ ${hpBar(attacker.hp, attacker.maxHp)}`, inline: true },
-        { name: `🔵 ${defender.username}`, value: `❤️ ${hpBar(defender.hp, defender.maxHp)}\n*-${ultDmg} HP!!!*`, inline: true },
-      );
-    await message.channel.send({ embeds: [embed] });
+        { name: `${SEAT_EMOJI[attacker.seat]} ${attacker.username}`, value: hpBar(attacker.hp, attacker.maxHp), inline: true },
+        { name: `${SEAT_EMOJI[defender.seat]} ${defender.username}`, value: `${hpBar(defender.hp, defender.maxHp)}\n*-${ultDmg} HP!!!*`, inline: true },
+      )
+      .setFooter({ text: `Turn ${session.currentTurn}` });
+    await channel.send({ embeds: [embed] });
 
-    if (defender.hp <= 0) return endDuel(message.channel, session, userId, defenderId);
+    if (defender.hp <= 0) return endDuel(channel, session, userId, defenderId);
   }
 
   await new Promise(r => setTimeout(r, 500));
-  await promptTurn(message.channel, session);
+  await promptTurn(channel, session);
 }
 
-// ── !surrender ────────────────────────────────────
+async function handleUltimate(message) {
+  const userId  = message.author.id;
+  const session = activeDuels.get(userId);
+  if (!session || session.picking) return;
+  if (session.turnOrder[session.currentTurn % 2] !== userId) return message.reply('⏳ Bukan giliran kamu!');
+  if (session.players[userId].ultimateUsed) return message.reply('❌ Ultimate sudah dipakai! Hanya bisa sekali per duel.');
+  if (session.actionLock) return;
+  session.actionLock = true;
+  try { await doUltimate(message.channel, session, userId); } finally { session.actionLock = false; }
+}
+
+// ── Surrender ─────────────────────────────────────
+async function doSurrender(channel, session, userId) {
+  await clearPrompt(session);
+  const defenderId = session.turnOrder.find(id => id !== userId);
+  await channel.send(`🏳️ **${session.players[userId].username}** menyerah!`);
+  return endDuel(channel, session, defenderId, userId);
+}
+
 async function handleSurrender(message) {
   const userId  = message.author.id;
   const session = activeDuels.get(userId);
   if (!session || session.picking) return message.reply('❓ Kamu gak lagi dalam duel.');
+  return doSurrender(message.channel, session, userId);
+}
 
-  const defenderId = session.turnOrder.find(id => id !== userId);
-  await message.channel.send(`🏳️ **${message.author.username}** menyerah!`);
-  return endDuel(message.channel, session, defenderId, userId);
+// ── Handler tombol serangan (interactionCreate) ────
+async function handleCombatButton(interaction) {
+  const [, action, ownerId] = interaction.customId.split('_'); // "duel_<action>_<userId>"
+
+  if (interaction.user.id !== ownerId) {
+    return interaction.reply({ content: '❌ Ini bukan giliran kamu!', ephemeral: true });
+  }
+
+  const session = activeDuels.get(ownerId);
+  if (!session || session.picking) {
+    return interaction.update({ content: '❓ Duel udah gak aktif.', embeds: [], components: [] }).catch(() => {});
+  }
+  if (action !== 'surrender' && session.turnOrder[session.currentTurn % 2] !== ownerId) {
+    return interaction.reply({ content: '⏳ Bukan giliran kamu!', ephemeral: true });
+  }
+  if (action === 'skill' && session.players[ownerId].skillUsed) {
+    return interaction.reply({ content: '❌ Skill sudah dipakai!', ephemeral: true });
+  }
+  if (action === 'ultimate' && session.players[ownerId].ultimateUsed) {
+    return interaction.reply({ content: '❌ Ultimate sudah dipakai!', ephemeral: true });
+  }
+  if (session.actionLock) {
+    return interaction.reply({ content: '⏳ Tunggu bentar, masih proses...', ephemeral: true });
+  }
+
+  // Matiin tombol di pesan ini dulu biar gak bisa diklik dobel
+  await interaction.update({ components: [] });
+  session.lastPromptMessage = null;
+
+  session.actionLock = true;
+  try {
+    switch (action) {
+      case 'attack':    await doAttack(interaction.channel, session, ownerId); break;
+      case 'skill':     await doSkill(interaction.channel, session, ownerId); break;
+      case 'ultimate':  await doUltimate(interaction.channel, session, ownerId); break;
+      case 'surrender': await doSurrender(interaction.channel, session, ownerId); break;
+    }
+  } finally {
+    session.actionLock = false;
+  }
 }
 
 async function endDuel(channel, session, winnerId, loserId) {
@@ -451,14 +589,16 @@ async function endDuel(channel, session, winnerId, loserId) {
 
   const embed = new EmbedBuilder()
     .setColor(0xffd700)
+    .setAuthor({ name: `${winner.username} menang!`, iconURL: winner.avatar })
     .setTitle('🏆 DUEL SELESAI!')
-    .setDescription(
-      `**${winner.username}** (${winner.char.name}) **MENANG!** ${RARITY_EMOJI[winner.char.rarity]}\n` +
-      `**${loser.username}** (${loser.char.name}) kalah!\n\n` +
-      `🎉 **+${REWARD} koin** untuk **${winner.username}**!`
-    );
+    .setThumbnail(winner.avatar)
+    .addFields(
+      { name: `🏆 ${winner.username}`, value: `${RARITY_EMOJI[winner.char.rarity]} **${winner.char.name}** — MENANG!`, inline: true },
+      { name: `💀 ${loser.username}`, value: `${RARITY_EMOJI[loser.char.rarity]} **${loser.char.name}** — Kalah`, inline: true },
+    )
+    .setFooter({ text: `+${REWARD} koin untuk ${winner.username} 💰` });
 
   return channel.send({ embeds: [embed] });
 }
 
-module.exports = { handleDuel, handleAccept, handleDecline, handlePick, handlePickSelect, handleAttack, handleSkill, handleUltimate, handleSurrender };
+module.exports = { handleDuel, handleAccept, handleDecline, handlePick, handlePickSelect, handleAttack, handleSkill, handleUltimate, handleSurrender, handleCombatButton };
