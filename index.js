@@ -6,7 +6,7 @@ const { initDB }                                = require('./database');
 const { handleGacha, handleDaily }              = require('./commands/gacha');
 const { handleInventory, handleCardInfo }        = require('./commands/inventory');
 const { handleDuel, handleAccept, handleDecline,
-        handlePickButton, handleAttack, handleSkill,
+        handlePick, handlePickSelect, handleAttack, handleSkill,
         handleUltimate, handleSurrender }        = require('./commands/duel');
 const { handleAddChar, handleCharList,
         handleBroadcast, handleSetChannel }             = require('./commands/admin');
@@ -62,14 +62,15 @@ client.once('ready', () => {
 
 client.on('guildCreate', (guild) => joinAfkChannel(guild));
 
-// ── Button interaction handler ─────────────────────
+// ── Dropdown pick interaction ──────────────────────
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isButton()) return;
+  if (!interaction.isStringSelectMenu()) return;
   if (interaction.customId.startsWith('pick_')) {
     try {
-      await handlePickButton(interaction);
+      await handlePickSelect(interaction);
     } catch (err) {
-      console.error('Error pick button:', err);
+      console.error('Error pick select:', err);
+      interaction.reply({ content: '❌ Terjadi error, coba lagi ya.', ephemeral: true }).catch(() => {});
     }
   }
 });
@@ -110,6 +111,7 @@ client.on('messageCreate', async (message) => {
       case '!duel':      return await handleDuel(message);
       case '!accept':    return await handleAccept(message);
       case '!decline':   return await handleDecline(message);
+      case '!pick':      return await handlePick(message, args);
       case '!attack':    return await handleAttack(message);
       case '!skill':     return await handleSkill(message);
       case '!ultimate':  return await handleUltimate(message);

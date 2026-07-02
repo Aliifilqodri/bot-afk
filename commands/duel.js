@@ -1,4 +1,4 @@
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 const db = require('../database');
 const { RARITY_EMOJI, RARITY_COLOR } = require('./gacha');
 
@@ -121,9 +121,88 @@ async function handleAccept(message) {
   await sendCutscene(message.channel, [
     `✅ **${message.author.username}** menerima tantangan!`,
     `🥊 **${challenger.user.username}** VS **${message.author.username}**`,
-    `📦 Keduanya — ketik **\`!pick [nama karakter]\`** untuk memilih!`,
-    `Contoh: \`!pick GokaiRed\` atau \`!pick KR Decade\` | Lihat koleksi: \`!inv\``,
   ], 700);
+
+  await sendPickMenus(message.channel, session);
+}
+
+// ── Kirim dropdown pilih karakter (tap, gak perlu ketik) ──
+const MAX_MENU_OPTIONS = 25; // batas Discord select menu
+
+async function sendPickMenus(channel, session) {
+  for (const [uid, player] of Object.entries(session.players)) {
+    const cards = db.getInventory(uid);
+
+    if (cards.length === 0) continue; // seharusnya gak terjadi (sudah dicek di !duel)
+
+    if (cards.length > MAX_MENU_OPTIONS) {
+      // Koleksi kebanyakan buat 1 dropdown — fallback ke !pick manual
+      await channel.send(
+        `📦 **${player.username}**, koleksi kamu lebih dari ${MAX_MENU_OPTIONS} kartu, ` +
+        `ketik **\`!pick [nama karakter]\`** buat pilih. Lihat koleksi: \`!inv\``
+      );
+      continue;
+    }
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`pick_${uid}`)
+      .setPlaceholder(`${player.username} — pilih karaktermu...`)
+      .addOptions(
+        cards.map((c) => ({
+          label: c.full_name?.slice(0, 100) || c.name,
+          description: `${c.rarity} • ATK ${c.atk} / DEF ${c.def} / HP ${c.hp}`.slice(0, 100),
+          value: String(c.id),
+          emoji: RARITY_EMOJI[c.rarity],
+        }))
+      );
+
+    const row = new ActionRowBuilder().addComponents(menu);
+
+    await channel.send({
+      content: `📦 **${player.username}** — pilih karakter buat duel ini:`,
+      components: [row],
+    });
+  }
+}
+
+// ── Handler dropdown pick (interactionCreate) ──────
+async function handlePickSelect(interaction) {
+  const [, ownerId] = interaction.customId.split('_'); // "pick_<userId>"
+
+  if (interaction.user.id !== ownerId) {
+    return interaction.reply({ content: '❌ Ini bukan pilihan kartu kamu!', ephemeral: true });
+  }
+
+  const session = activeDuels.get(ownerId);
+  if (!session || !session.picking) {
+    return interaction.update({ content: '❓ Fase pilih karakter sudah selesai / duel gak ditemukan.', components: [] });
+  }
+  if (session.picked[ownerId]) {
+    return interaction.reply({ content: '✅ Kamu sudah memilih karakter!', ephemeral: true });
+  }
+
+  const charId = Number(interaction.values[0]);
+  const cards  = db.getInventory(ownerId);
+  const char   = cards.find((c) => c.id === charId);
+  if (!char) {
+    return interaction.reply({ content: '❌ Karakter gak ditemukan di koleksi kamu.', ephemeral: true });
+  }
+
+  session.picked[ownerId]        = true;
+  session.players[ownerId].char  = char;
+  session.players[ownerId].hp    = char.hp;
+  session.players[ownerId].maxHp = char.hp;
+
+  await interaction.update({
+    content: `✅ **${session.players[ownerId].username}** memilih **${char.full_name}** ${RARITY_EMOJI[char.rarity]}!`,
+    components: [],
+  });
+
+  const bothPicked = Object.values(session.players).every((p) => p.char !== null);
+  if (bothPicked) {
+    session.picking = false;
+    await startDuel(interaction.channel, session);
+  }
 }
 
 // ── !decline ──────────────────────────────────────
@@ -382,4 +461,4 @@ async function endDuel(channel, session, winnerId, loserId) {
   return channel.send({ embeds: [embed] });
 }
 
-module.exports = { handleDuel, handleAccept, handleDecline, handlePick, handleAttack, handleSkill, handleUltimate, handleSurrender };
+module.exports = { handleDuel, handleAccept, handleDecline, handlePick, handlePickSelect, handleAttack, handleSkill, handleUltimate, handleSurrender };
